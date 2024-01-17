@@ -1,0 +1,261 @@
+---
+title: "Cyclistic Bike Share Case Study"
+author: "Levi Watson"
+date: "2023-12-29"
+output:
+  html_document:
+    code_folding: hide
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r packages, include = FALSE}
+library(tidyverse)
+library(lubridate)
+```
+
+## Business Task
+
+Cyclistic is a rapidly growing fictitious bike-share company that prides itself in flexibility and accessibility. It consists of over 5000 bikes and 600 docking locations. The majority of users use standard bikes, but Cyclistic also offers options for those unable to operate a two-wheeled bike.
+
+Cyclistic's pricing options for riders are as follows:
+
+-   Single Ride
+-   Day Pass
+-   Annual Membership
+
+Single Ride and Day Pass will be referred to as casual riders over the course of this analysis.
+
+> **Goal: Increase the number of annual members by converting casual riders.**
+
+Business questions:
+
+-   How do casual riders and annual members use services differently?
+-   Why would casual riders switch to a membership?
+-   How can Cyclistic use digital media to convert their casual riders to members?
+
+## Data & Processing
+
+Previous 12 months of bikeshare trip data (December 2022 - November 2023) were used.
+
+Each month's data was stored as a csv file. There are 5,677,610 instances recorded, with 13 attributes.
+
+-   Trip ID
+-   Rider Type
+-   Bike Type
+-   Start Time
+-   End Time
+-   Starting Station ID
+-   Starting Station Name
+-   Starting Latitude
+-   Starting Longitude
+-   Ending Station ID
+-   Ending Station Name
+-   Ending Latitude
+-   Ending Longitude
+
+Additionally, these attributes were calculated:
+
+-   Trip Length
+-   Day of Week
+-   Starting Hour
+
+Access was given by the Google Data Analytics Professional Certificate program. All personal information was removed from the data before access was given.
+
+Data was loaded into R for cleaning and analysis, where the individual months were merged into one table.
+
+There are a good deal of missing values in both starting and ending station ID and Name. These values were left alone as the majority of the analysis focuses in on other attributes.
+
+In some cases, the values of Start Time were later than End Time. For those rows, End Time and Start time were swapped.
+
+```{r merge data, eval = FALSE, include = FALSE}
+dec_data <- read.csv("Monthly Data/202212-divvy-tripdata.csv")
+jan_data <- read.csv("Monthly Data/202301-divvy-tripdata.csv")
+feb_data <- read.csv("Monthly Data/202302-divvy-tripdata.csv")
+mar_data <- read.csv("Monthly Data/202303-divvy-tripdata.csv")
+apr_data <- read.csv("Monthly Data/202304-divvy-tripdata.csv")
+may_data <- read.csv("Monthly Data/202305-divvy-tripdata.csv")
+jun_data <- read.csv("Monthly Data/202306-divvy-tripdata.csv")
+jul_data <- read.csv("Monthly Data/202307-divvy-tripdata.csv")
+aug_data <- read.csv("Monthly Data/202308-divvy-tripdata.csv")
+sep_data <- read.csv("Monthly Data/202309-divvy-tripdata.csv")
+oct_data <- read.csv("Monthly Data/202310-divvy-tripdata.csv")
+nov_data <- read.csv("Monthly Data/202311-divvy-tripdata.csv")
+
+bike_data_join <- dec_data %>%
+  full_join(jan_data, by = colnames(dec_data)) %>%
+  full_join(feb_data, by = colnames(dec_data)) %>%
+  full_join(mar_data, by = colnames(dec_data)) %>%
+  full_join(apr_data, by = colnames(dec_data)) %>%
+  full_join(may_data, by = colnames(dec_data)) %>%
+  full_join(jun_data, by = colnames(dec_data)) %>%
+  full_join(jul_data, by = colnames(dec_data)) %>%
+  full_join(aug_data, by = colnames(dec_data)) %>%
+  full_join(sep_data, by = colnames(dec_data)) %>%
+  full_join(oct_data, by = colnames(dec_data)) %>%
+  full_join(nov_data, by = colnames(dec_data))
+
+write.csv(bike_data_join, "Data_Uncleaned.csv")
+
+```
+
+```{r data cleaning}
+#Import merged data
+bike_data1 <- read.csv('Data_Uncleaned.csv')
+
+bike_data2 <- bike_data1 %>%
+  mutate(rideable_type = as.factor(rideable_type),
+         member_casual = as.factor(member_casual),
+         end_station_id = na_if(as.factor(end_station_id), ''),
+         end_station_name = na_if(as.factor(end_station_name), ''),
+         start_station_name = na_if(as.factor(start_station_name), ''),
+         start_station_id = na_if(as.factor(start_station_id), ''),
+         started_at = as_datetime(started_at),
+         ended_at = as_datetime(ended_at))
+
+bike_data2[bike_data2$started_at > bike_data2$ended_at, c('started_at', 'ended_at')] <- bike_data2[bike_data2$started_at > bike_data2$ended_at, c('ended_at', 'started_at')]
+
+bike_data2 <- bike_data2 %>%
+  mutate(trip_len = as.duration(ended_at - started_at),
+         start_hour = hour(started_at),
+         wk_day = wday(started_at))
+```
+
+## Analysis & Graphs
+
+For the analysis, the different attributes stored in the data were compared between casual riders and annual members. Each of the following graphs highlights a specific difference between the two groups.
+
+### Number of Trips
+
+```{r member type by total number of trips}
+bike_data2 %>%
+  group_by(member_casual) %>%
+  summarize(total_trips = n()) %>%
+  ggplot(aes(x = member_casual, y = total_trips))+
+  geom_col()+
+  labs(title = 'Total Number of Trips by Rider Type', x = 'Rider Type', y = 'Total Number of Trips')
+```
+
+Trips taken by members nearly double those taken by casual riders. Recorded in the data are roughly 2 million trips by casual riders and 3.6 million by members.
+
+### Trip Length
+
+```{r trip length distribution by rider type}
+bike_data2 %>%
+  mutate(trip_len_mins = trip_len/60) %>%
+  ggplot(aes(x = trip_len_mins, y = member_casual))+
+  geom_violin()+
+  labs(title = 'Violin Plot of Trip Lengths', x = 'Trip Length (Minutes)', y = 'Rider Type')
+```
+
+We can't see much detail on this plot because casual riders' trips have gone up to 98489 minutes (nearly 10 weeks). What this shows is that the very longest trips are done by casual riders.
+
+```{r trip length distribution (filtered)}
+
+plot1 <- bike_data2 %>%
+  mutate(trip_len_mins = trip_len/60) %>%
+  ggplot(aes(x = trip_len_mins, y = member_casual, fill = member_casual))+
+  geom_violin()+
+  lims(x = c(0, 60))+
+  labs(title = 'Violin Plot of Trip Lengths', x = 'Trip Length (Minutes)', y = 'Rider Type')
+
+suppressWarnings(print(plot1))
+```
+
+When we zoom into trip lengths of 1 hr or less, we can see that members still make slightly shorter trips than casual riders. The difference between the wide areas in the graph isn't very large, within a couple minutes.
+
+Additionally, the member violin is much thicker, showing that members take more, shorter trips than casual riders.
+
+### Bike Type
+
+```{r member type by bike type, message = FALSE}
+bike_data2 %>%
+  group_by(member_casual, rideable_type) %>%
+  summarise(num_trips = n()) %>%
+  ggplot(aes(x = rideable_type, y = num_trips))+geom_col()+facet_wrap(vars(member_casual))+
+  labs(title = 'Total Number of Trips by Bike Type', subtitle = 'For Casual Riders and Annual Members', x = 'Bike Type', y = 'Number of Trips')
+```
+
+Docked bikes are only used by casual members.
+
+Casual members use electric bikes more than the other two types, where members use electric and classic very close to equally.
+
+### Day of the Week
+
+```{r number of trips by day of week and member type, message = FALSE}
+bike_data2 %>%
+  group_by(member_casual, wk_day) %>%
+  summarize(num_trips = n()) %>%
+  ggplot(aes(x = wk_day, y = num_trips))+
+  geom_col(aes(fill = member_casual), position = 'dodge')+
+  labs(title = 'Total Number of Trips over the Week', subtitle = 'For Casual Riders and Annual Members', x = 'Day of Week', y = 'Number of Trips', fill = 'Rider Type')
+
+```
+
+Annual Members use bikes significantly more throughout the week, where casual riders use more on the weekends.
+
+### Hourly
+
+```{r number of trips by hour and member type, message = FALSE}
+bike_data2 %>%
+  group_by(member_casual, start_hour) %>%
+  summarize(num_trips = n()) %>%
+  ggplot(aes(x = start_hour, y = num_trips))+
+  geom_col(aes(fill = member_casual), position = 'dodge')+
+  labs(title = 'Total Number of Trips by Hour', x = 'Hour', y = 'Number of Trips', fill = 'Member Type')
+
+```
+
+Members utilize bikes the most at work commute times: 7-8am and 4pm-6pm. Casual riders generally will use bikes in the late afternoon/early evening.
+
+### Hourly and Day of the Week
+
+```{r number of trips by hour weekday and member type, message = FALSE}
+#|collapse = TRUE
+bike_data2 %>%
+  group_by(member_casual, wk_day, start_hour) %>%
+  summarize(num_trips = n()) %>%
+  ggplot(aes(x = start_hour, y = num_trips))+
+  geom_col(aes(fill = member_casual), position = 'dodge')+
+  facet_wrap(vars(wk_day))+
+  labs(title = 'Total Number of Trips by Hours of Weekdays', fill = 'Rider Type', x = 'Hour', y = 'Number of Trips')
+
+```
+
+We can see the work commute trend in Monday through Friday with Members. On the weekends, casual riders and members take roughly the same amount of trips.
+
+## Conclusion
+
+> *How do casual riders and annual members use services differently?*
+
+Annual members ride more; Roughly 64% of trips are done by annual members. This does mean there are still a large amount of casual riders that can be converted to annual members.
+
+Annual members ride shorter; We see annual members making more, shorter trips, whereas there are a few outlier casual riders that have taken very long trips.
+
+Casual riders use docked bikes. Annual member's haven't in the last year.
+
+Members ride more during the week than they do on the weekend, while casual riders ride more on the weekend than they do during the week.
+
+Members ride during the work commute times, where casual riders ride more in the afternoon and evening.
+
+On weekends, annual members and casual riders take roughly the same number of trips at the same times.
+
+> *Why would casual riders convert to annual members?*
+
+A large reason a casual rider would convert is to make the work commute. We see members making many short, routine trips around the work commute times. This leads us to think this is a leading factor behind them paying for this service.
+
+Another possible reason for conversion is simply because one rides enough to make the cost worth it. A limitation of this analysis is that we cannot see how many trips are done per member. If we could see that, we could explore if there's a correlation between membership status and number of trips per member. That being said, a guess that an individual member makes more trips than an individual casual rider would be reasonable.
+
+## Recommendations
+
+> *How can Cyclistic use digital media to convert their casual riders to annual members?*
+
+An approach that targets a specific group of casual riders with a digital media solution has the potential to be effective. Some potential digital media solutions could be advertisements or special offers/discounts tailored to the targeted audience.
+
+The best group of casual riders to be targeted could be the ones making the work commute, as this is where many of Cyclistic's members already exist. This could take shape as digital advertisements targeted towards workers, slightly before or during commute times.
+
+Another approach could be to target populations of riders that have more casual riders than members - Ones making longer trips, riding docked bikes, or potentially even weekend riders. This could be something to explore further as the data doesn't make it clear why some of these casual riders have stayed casual riders.
+
+> *The clearest option is to market to casual riders commuting to and from work during the week.*
